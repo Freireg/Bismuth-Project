@@ -52,6 +52,24 @@ const osThreadAttr_t defaultTask_attributes = {
 };
 /* USER CODE BEGIN PV */
 
+uint8_t						        ch1TxData[8], ch1RxData[8];
+CAN_RxHeaderTypeDef			  ch1RxHeader;
+CAN_TxHeaderTypeDef			  ch1TxHeader;
+uint32_t						      ch1TxMailbox;
+
+
+osThreadId_t task2Handle;
+const osThreadAttr_t task2_attributes = {
+  .name = "task2",
+  .stack_size = 512 * 2,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+osThreadId_t canManagerHandle;
+const osThreadAttr_t canManager_attributes = {
+  .name = "canManager",
+  .stack_size = 512 * 2,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -61,7 +79,7 @@ static void MX_CAN1_Init(void);
 void StartDefaultTask(void *argument);
 
 /* USER CODE BEGIN PFP */
-
+void entryCanManager(void *argument);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -128,6 +146,9 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
+//  task1Handle = osThreadNew(entryTask1, NULL, &task1_attributes);
+//  task2Handle = osThreadNew(entryTask2, NULL, &task2_attributes);
+  canManagerHandle = osThreadNew(entryCanManager, NULL, &canManager_attributes);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -223,7 +244,20 @@ static void MX_CAN1_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN CAN1_Init 2 */
+  CAN_FilterTypeDef canFilterConfig;
 
+  canFilterConfig.FilterActivation = CAN_FILTER_ENABLE;
+  canFilterConfig.FilterBank = 3;  // which filter bank to use from the assigned ones
+  canFilterConfig.FilterFIFOAssignment = CAN_FILTER_FIFO0;
+  canFilterConfig.FilterIdHigh = 0xFFF<<16;
+  canFilterConfig.FilterIdLow = 0;
+  canFilterConfig.FilterMaskIdHigh = 0xFFF<<16;
+  canFilterConfig.FilterMaskIdLow = 0x0000;
+  canFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
+  canFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;
+  canFilterConfig.SlaveStartFilterBank = 10;  // how many filters to assign to the CAN1 (master can)
+
+  HAL_CAN_ConfigFilter(&hcan1, &canFilterConfig);
   /* USER CODE END CAN1_Init 2 */
 
 }
@@ -259,7 +293,59 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+void entryTask1(void *argument) {
+	  /* Infinite loop */
+	  for(;;)
+	  {
+	    osDelay(100);
+	  }
+}
+void entryTask2(void *argument) {
+	  /* Infinite loop */
+	  for(;;)
+	  {
+	    osDelay(100);
+	  }
+}
+void entryCanManager(void *argument) {
+  HAL_CAN_Start(&hcan1);
+  CAN_RxHeaderTypeDef receiverCanHeader;
+  ch1TxHeader.IDE 		= CAN_ID_STD;
+  ch1TxHeader.StdId		= 0x446;
+  ch1TxHeader.RTR		= CAN_RTR_DATA;
+  ch1TxHeader.DLC		= 3;
 
+  ch1TxData[0]			= 24;
+  ch1TxData[1]			= 96;
+  ch1TxData[2]			= 26;
+
+  while (1)
+  {
+    if (HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) {
+		  Error_Handler();
+	  }
+	  if (HAL_CAN_AddTxMessage(&hcan1, &ch1TxHeader, ch1TxData, &ch1TxMailbox) != HAL_OK) {
+		  Error_Handler();
+	  }
+	  osDelay(500);
+  }
+}
+
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
+	if(HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &ch1RxHeader, ch1RxData) != HAL_OK) {
+		Error_Handler();
+	}
+
+	if(ch1RxHeader.StdId == 0x103) {
+		HAL_GPIO_TogglePin(BLUE_LED_GPIO_Port, BLUE_LED_Pin);
+		__asm("nop");
+	}
+
+	if(ch1RxHeader.StdId == 0x224) {
+			HAL_GPIO_TogglePin(RED_LED_GPIO_Port, RED_LED_Pin);
+			__asm("nop");
+		}
+}
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartDefaultTask */
