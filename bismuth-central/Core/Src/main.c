@@ -22,7 +22,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "FreeRTOS.h"
+#include "queue.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -57,19 +58,12 @@ CAN_RxHeaderTypeDef			  ch1RxHeader;
 CAN_TxHeaderTypeDef			  ch1TxHeader;
 uint32_t						      ch1TxMailbox;
 
-
-osThreadId_t task2Handle;
-const osThreadAttr_t task2_attributes = {
-  .name = "task2",
-  .stack_size = 512 * 2,
-  .priority = (osPriority_t) osPriorityNormal,
-};
-osThreadId_t canManagerHandle;
-const osThreadAttr_t canManager_attributes = {
-  .name = "canManager",
-  .stack_size = 512 * 2,
-  .priority = (osPriority_t) osPriorityNormal,
-};
+TaskHandle_t canManagerHandle = NULL;
+TaskHandle_t task1Handle = NULL;
+TaskHandle_t task2Handle = NULL;
+xQueueHandle canMessageQueue = NULL;
+xQueueHandle task1InputQueue = NULL, task1OutputQueue = NULL;
+xQueueHandle task2InputQueue = NULL, task2OutputQueue = NULL;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -80,6 +74,8 @@ void StartDefaultTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 void entryCanManager(void *argument);
+void entryTask1(void *argument);
+void entryTask2(void *argument);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -146,9 +142,22 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
-//  task1Handle = osThreadNew(entryTask1, NULL, &task1_attributes);
-//  task2Handle = osThreadNew(entryTask2, NULL, &task2_attributes);
-  canManagerHandle = osThreadNew(entryCanManager, NULL, &canManager_attributes);
+  BaseType_t xReturned;
+  xReturned = xTaskCreate(entryCanManager, "canManager", 128, NULL, tskIDLE_PRIORITY+1, &canManagerHandle);
+  if (xReturned != pdPASS) {
+    /* Task creation failed */
+    Error_Handler();
+  }
+  xReturned = xTaskCreate(entryTask1, "task1", 128, NULL, tskIDLE_PRIORITY, &task1Handle);
+  if (xReturned != pdPASS) {
+    /* Task creation failed */
+    Error_Handler();
+  }
+  xReturned = xTaskCreate(entryTask2, "task2", 128, NULL, tskIDLE_PRIORITY, &task2Handle);
+  if (xReturned != pdPASS) {
+    /* Task creation failed */
+    Error_Handler();
+  }
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -294,22 +303,62 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 void entryTask1(void *argument) {
-	  /* Infinite loop */
-	  for(;;)
-	  {
-	    osDelay(100);
+	bismuthTaskMessage inputData 	= {0};
+	bismuthTaskMessage outputData	= {0};
+
+    task1InputQueue = xQueueCreate(8, sizeof(bismuthTaskMessage));
+    if (task1InputQueue == NULL) {
+      /* Queue creation failed */
+      Error_Handler();
+    }
+    task1OutputQueue = xQueueCreate(8, sizeof(bismuthTaskMessage));
+    if (task1OutputQueue == NULL) {
+      /* Queue creation failed */
+      Error_Handler();
+    }
+    for(;;) {
+	  if(xQueueReceive(task1InputQueue, &inputData, portMAX_DELAY) == pdTRUE) {
+		// Process the received message
+		HAL_GPIO_TogglePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
+		__asm("nop");
 	  }
+	  vTaskDelay(100);
+	 }
 }
 void entryTask2(void *argument) {
-	  /* Infinite loop */
-	  for(;;)
-	  {
-	    osDelay(100);
-	  }
+	bismuthTaskMessage inputData 	= {0};
+	bismuthTaskMessage outputData	= {0};
+
+	task2InputQueue = xQueueCreate(4, sizeof(bismuthTaskMessage));
+  if (task2InputQueue == NULL) {
+    /* Queue creation failed */
+    Error_Handler();
+  }
+  task2OutputQueue = xQueueCreate(4, sizeof(bismuthTaskMessage));
+  if (task2OutputQueue == NULL) {
+    /* Queue creation failed */
+    Error_Handler();
+  }
+  for(;;) {
+	  if (xQueueReceive(task2InputQueue, &inputData, 100) == pdTRUE) {
+		  // Process the received message
+		  HAL_GPIO_TogglePin(ORANGE_LED_GPIO_Port, ORANGE_LED_Pin);
+        __asm("nop");
+      }
+	    vTaskDelay(100);
+  }
 }
 void entryCanManager(void *argument) {
-  HAL_CAN_Start(&hcan1);
-  CAN_RxHeaderTypeDef receiverCanHeader;
+
+  BaseType_t xTaskWokenByReceive = pdFALSE;
+  bismuthCANMessage canMessage;
+
+  canMessageQueue = xQueueCreate(8, sizeof(bismuthCANMessage));
+  if (canMessageQueue == NULL) {
+    /* Queue creation failed */
+    Error_Handler();
+  }
+  /*---Dummy Data---*/
   ch1TxHeader.IDE 		= CAN_ID_STD;
   ch1TxHeader.StdId		= 0x446;
   ch1TxHeader.RTR		= CAN_RTR_DATA;
@@ -318,33 +367,56 @@ void entryCanManager(void *argument) {
   ch1TxData[0]			= 24;
   ch1TxData[1]			= 96;
   ch1TxData[2]			= 26;
+  /*----------------*/
+
+  HAL_CAN_Start(&hcan1);
 
   while (1)
   {
+    /*--- Test routine to trigger peripheral device---*/
     if (HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) {
 		  Error_Handler();
 	  }
 	  if (HAL_CAN_AddTxMessage(&hcan1, &ch1TxHeader, ch1TxData, &ch1TxMailbox) != HAL_OK) {
 		  Error_Handler();
 	  }
-	  osDelay(500);
+    /*---End of test routine---*/
+
+    /* Wait for a CAN frame to be received */
+    if (xQueueReceiveFromISR(canMessageQueue, &canMessage, &xTaskWokenByReceive) == pdTRUE) {
+      /* Redirect the received CAN message to its specific task queue */
+      switch (canMessage.messageHeader.StdId) 
+      {
+        case 0x224:
+          HAL_GPIO_TogglePin(BLUE_LED_GPIO_Port, BLUE_LED_Pin);
+          __asm("nop");
+          xQueueSend(task1InputQueue, (bismuthTaskMessage *)canMessage.data, 0);
+          break;
+        case 0x103:
+          HAL_GPIO_TogglePin(RED_LED_GPIO_Port, RED_LED_Pin);
+          __asm("nop");
+          xQueueSend(task2InputQueue, (bismuthTaskMessage *)canMessage.data, 0);
+          break;
+        default:
+        	break;
+      }
+    }
+	  vTaskDelay(500);
   }
 }
 
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
-	if(HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &ch1RxHeader, ch1RxData) != HAL_OK) {
+  BaseType_t xHigherPriorityTaskWoken;
+  bismuthCANMessage canMessage;
+
+  /* We have not woken a task at the start of the ISR. */
+  xHigherPriorityTaskWoken = pdFALSE;
+
+  if(HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &canMessage.messageHeader, canMessage.data) != HAL_OK) {
 		Error_Handler();
 	}
 
-	if(ch1RxHeader.StdId == 0x103) {
-		HAL_GPIO_TogglePin(BLUE_LED_GPIO_Port, BLUE_LED_Pin);
-		__asm("nop");
-	}
-
-	if(ch1RxHeader.StdId == 0x224) {
-			HAL_GPIO_TogglePin(RED_LED_GPIO_Port, RED_LED_Pin);
-			__asm("nop");
-		}
+  xQueueSendFromISR(canMessageQueue, &canMessage, &xHigherPriorityTaskWoken);
 }
 /* USER CODE END 4 */
 

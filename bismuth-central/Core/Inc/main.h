@@ -31,7 +31,14 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+typedef struct {
+	CAN_RxHeaderTypeDef messageHeader;
+	uint8_t				data[8];
+} bismuthCANMessage;
 
+typedef struct {
+  uint8_t				data[8];
+} bismuthTaskMessage;
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
