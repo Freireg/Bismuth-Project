@@ -54,3 +54,15 @@ In this demonstration, Task 1 is responsible for requesting a specific frame fro
 Task 2 is responsible for receiving a specific frame when the USR button on the Pico board is pressed and toggling the blue LED on the ST's board.
 
 ### Pico Implementation
+
+```mermaid
+flowchart TD
+        A(["Start"])
+        A --> B["Read CAN frame"]
+        B --> C{"Remote Transmission Request?"}
+        C -->|Yes| D["Read distance"]
+        C --> |No| E["Toggle LED on the board"]
+
+        D --> F["Return distance value over CAN"]
+
+```

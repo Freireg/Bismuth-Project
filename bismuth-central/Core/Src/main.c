@@ -305,6 +305,12 @@ static void MX_GPIO_Init(void)
 void entryTask1(void *argument) {
 	bismuthTaskMessage inputData 	= {0};
 	bismuthTaskMessage outputData	= {0};
+	UNUSED(outputData);
+	union {
+		float f;
+		uint8_t b[4];
+	} distanceRead;
+
 
     task1InputQueue = xQueueCreate(8, sizeof(bismuthTaskMessage));
     if (task1InputQueue == NULL) {
@@ -319,10 +325,38 @@ void entryTask1(void *argument) {
     for(;;) {
 	  if(xQueueReceive(task1InputQueue, &inputData, portMAX_DELAY) == pdTRUE) {
 		// Process the received message
-		HAL_GPIO_TogglePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
+		distanceRead.b[0] = inputData.data[0];
+		distanceRead.b[1] = inputData.data[1];
+		distanceRead.b[2] = inputData.data[2];
+		distanceRead.b[3] = inputData.data[3];
+
+		if (distanceRead.f > 20.0) {
+			HAL_GPIO_WritePin(BLUE_LED_GPIO_Port, BLUE_LED_Pin, GPIO_PIN_SET);
+			HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(ORANGE_LED_GPIO_Port, ORANGE_LED_Pin, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_RESET);
+		}
+		else if (distanceRead.f > 15.0) {
+			HAL_GPIO_WritePin(BLUE_LED_GPIO_Port, BLUE_LED_Pin, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_SET);
+			HAL_GPIO_WritePin(ORANGE_LED_GPIO_Port, ORANGE_LED_Pin, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_RESET);
+		}
+		else if (distanceRead.f > 10.0) {
+			HAL_GPIO_WritePin(BLUE_LED_GPIO_Port, BLUE_LED_Pin, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(ORANGE_LED_GPIO_Port, ORANGE_LED_Pin, GPIO_PIN_SET);
+			HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_RESET);
+		}
+		else if (10.0 > distanceRead.f) {
+			HAL_GPIO_WritePin(BLUE_LED_GPIO_Port, BLUE_LED_Pin, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(ORANGE_LED_GPIO_Port, ORANGE_LED_Pin, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_SET);
+		}
 		__asm("nop");
 	  }
-	  vTaskDelay(100);
+	  vTaskDelay(10);
 	 }
 }
 void entryTask2(void *argument) {
@@ -361,7 +395,7 @@ void entryCanManager(void *argument) {
   /*---Dummy Data---*/
   ch1TxHeader.IDE 		= CAN_ID_STD;
   ch1TxHeader.StdId		= 0x446;
-  ch1TxHeader.RTR		= CAN_RTR_DATA;
+  ch1TxHeader.RTR		= CAN_RTR_REMOTE;
   ch1TxHeader.DLC		= 3;
 
   ch1TxData[0]			= 24;
@@ -388,7 +422,7 @@ void entryCanManager(void *argument) {
       switch (canMessage.messageHeader.StdId) 
       {
         case 0x224:
-          HAL_GPIO_TogglePin(BLUE_LED_GPIO_Port, BLUE_LED_Pin);
+//          HAL_GPIO_TogglePin(BLUE_LED_GPIO_Port, BLUE_LED_Pin);
           __asm("nop");
           xQueueSend(task1InputQueue, (bismuthTaskMessage *)canMessage.data, 0);
           break;
@@ -401,7 +435,7 @@ void entryCanManager(void *argument) {
         	break;
       }
     }
-	  vTaskDelay(500);
+	  vTaskDelay(50);
   }
 }
 

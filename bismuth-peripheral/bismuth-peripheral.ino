@@ -10,6 +10,13 @@ unsigned char len = 0;
 unsigned char rxBuf[8];
 char msgString[128];                        // Array to store serial string
 
+byte sensorData[8] = {0};
+
+union {
+  float floatValue;
+  byte data[4];
+} distanceRead;
+
 #define CAN0_INT 20                              // Set INT to pin 20
 MCP_CAN CAN0(17);                               // Set CS to pin 17
 
@@ -30,10 +37,9 @@ void setup () {
 }
 
 void loop () {
-    // Every 500 miliseconds, do a measurement using the sensor and print the distance in centimeters.
-    Serial.println(distanceSensor.measureDistanceCm());
+    // Read interuption pin in the MCP2515
     if(!digitalRead(CAN0_INT)) {
-
+      //Read CAN frame
       CAN0.readMsgBuf(&rxId, &len, rxBuf);
       if((rxId & 0x80000000) == 0x80000000)     // Determine if ID is standard (11 bits) or extended (29 bits)
         sprintf(msgString, "Extended ID: 0x%.8lX  DLC: %1d  Data:", (rxId & 0x1FFFFFFF), len);
@@ -43,9 +49,22 @@ void loop () {
       Serial.print(msgString);
 
       if((rxId & 0x40000000) == 0x40000000){    // Determine if message is a remote request frame.
-      sprintf(msgString, " REMOTE REQUEST FRAME");
-      Serial.print(msgString);
-    } else {
+        sprintf(msgString, " REMOTE REQUEST FRAME\n");
+        Serial.print(msgString);
+        distanceRead.floatValue = distanceSensor.measureDistanceCm();
+        sensorData[0] = distanceRead.data[0];
+        sensorData[1] = distanceRead.data[1];
+        sensorData[2] = distanceRead.data[2];
+        sensorData[3] = distanceRead.data[3];
+        // send data:  ID = 0x224, Standard CAN Frame, Data length = 8 bytes, 'data' = array of data bytes to send
+        byte sndStat = CAN0.sendMsgBuf(0x224, 0, 4, sensorData);
+        if(sndStat == CAN_OK){
+          Serial.println("Message Sent Successfully!");
+        } else {
+          Serial.println("Error Sending Message...");
+        }
+
+      } else {
         for(byte i = 0; i<len; i++){
           sprintf(msgString, " 0x%.2X", rxBuf[i]);
           Serial.print(msgString);
@@ -53,5 +72,5 @@ void loop () {
       }
     }
     Serial.println();
-    delay(500);
+    // delay(500);
 }
