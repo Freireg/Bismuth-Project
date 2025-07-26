@@ -2,8 +2,9 @@
 #include <mcp_can.h>
 #include <SPI.h>
 
-UltraSonicDistanceSensor distanceSensor(29, 28);  // Initialize sensor that uses digital pins 13 and 12.
+#define USR_BUTTON  24
 
+UltraSonicDistanceSensor distanceSensor(29, 28);  // Initialize sensor that uses digital pins 13 and 12.
 
 long unsigned int rxId;
 unsigned char len = 0;
@@ -11,6 +12,7 @@ unsigned char rxBuf[8];
 char msgString[128];                        // Array to store serial string
 
 byte sensorData[8] = {0};
+byte emergencyData[2] = {0};
 
 union {
   float floatValue;
@@ -32,11 +34,24 @@ void setup () {
     CAN0.setMode(MCP_NORMAL);                     // Set operation mode to normal so the MCP2515 sends acks to received data.
 
     pinMode(CAN0_INT, INPUT);                            // Configuring pin for /INT input
+    pinMode(USR_BUTTON, INPUT_PULLUP);
     
     Serial.println("MCP2515 Library Receive Example...");
 }
 
 void loop () {
+
+    // Pseudo emergency routine, if the button is pressed a CAN frame is sent to halt the central's tasks
+    if (!digitalRead(USR_BUTTON)) {
+      Serial.println("Emergency button pressed!");
+      byte sndStat = CAN0.sendMsgBuf(0x103, 0, 2, emergencyData);
+        if(sndStat == CAN_OK){
+          Serial.println("Message Sent Successfully!");
+        } else {
+          Serial.println("Error Sending Message...");
+        }
+      delay(200); //Debounce delay
+    }
     // Read interuption pin in the MCP2515
     if(!digitalRead(CAN0_INT)) {
       //Read CAN frame
@@ -70,7 +85,7 @@ void loop () {
           Serial.print(msgString);
         }
       }
+      Serial.println();
     }
-    Serial.println();
     // delay(500);
 }
