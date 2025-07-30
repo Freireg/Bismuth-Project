@@ -51,17 +51,20 @@ block-beta
 ```
 In this demonstration, Task 1 is responsible for requesting a specific frame from the Pico, interpreting the ultrasonic sensor data and turning on an LED based on the measured distance.
 
-Task 2 is responsible for receiving a specific frame when the USR button on the Pico board is pressed and toggling the blue LED on the ST's board.
+Task 2 is responsible for receiving a specific frame when the USR button on the Pico board is pressed, toggling the red LED on the ST's board and halting Task 1.
 
 ### Pico Implementation
 
 ```mermaid
 flowchart TD
         A(["Start"])
-        A --> B["Read CAN frame"]
+        A --> E{"USR button pressed?"}
+        E --> |No| B["Read CAN frame"]
         B --> C{"Remote Transmission Request?"}
         C -->|Yes| D["Read distance"]
-        C --> |No| E["Toggle LED on the board"]
+
+        E --> |Yes| G["Send CAN frame with ID 0x103"]
+        
 
         D --> F["Return distance value over CAN"]
 
